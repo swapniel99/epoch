@@ -1,5 +1,6 @@
 import os
 from abc import ABC
+from functools import cached_property
 
 import torch
 import albumentations as A
@@ -26,11 +27,18 @@ class MyDataSet(ABC):
         self.alb_transforms = alb_transforms or self.default_alb_transforms
 
         self.loader_kwargs = {'batch_size': batch_size, 'num_workers': os.cpu_count(), 'pin_memory': True}
-        self.train_transforms = self.get_train_transforms()
-        self.test_transforms = self.get_test_transforms()
-        self.train_loader = self.get_train_loader()
-        self.test_loader = self.get_test_loader()
-        self.example_iter = iter(self.train_loader)
+
+    @cached_property
+    def train_loader(self):
+        return self.get_train_loader()
+
+    @cached_property
+    def test_loader(self):
+        return self.get_test_loader()
+
+    @cached_property
+    def example_iter(self):
+        return iter(self.train_loader)
 
     def get_train_transforms(self):
         all_transforms = list()
@@ -48,20 +56,22 @@ class MyDataSet(ABC):
         all_transforms.append(ToTensorV2())
         return A.Compose(all_transforms)
 
+    def download(self):
+        self.DataSet('../data', train=True, download=True)
+        self.DataSet('../data', train=False, download=True)
+
     def get_train_loader(self):
-        train_data = self.DataSet('../data', train=True, download=True, alb_transform=self.train_transforms)
+        train_data = self.DataSet('../data', train=True, download=True, alb_transform=self.get_train_transforms())
         if self.classes is None:
             self.classes = {i: c for i, c in enumerate(train_data.classes)}
-        self.train_loader = torch.utils.data.DataLoader(train_data, shuffle=self.shuffle, **self.loader_kwargs)
-        return self.train_loader
+        return torch.utils.data.DataLoader(train_data, shuffle=self.shuffle, **self.loader_kwargs)
 
     def get_test_loader(self):
-        test_data = self.DataSet('../data', train=False, download=True, alb_transform=self.test_transforms)
-        self.test_loader = torch.utils.data.DataLoader(test_data, shuffle=False, **self.loader_kwargs)
-        return self.test_loader
+        test_data = self.DataSet('../data', train=False, download=True, alb_transform=self.get_test_transforms())
+        return torch.utils.data.DataLoader(test_data, shuffle=False, **self.loader_kwargs)
 
     def denormalise(self, tensor):
-        result = torch.tensor(tensor, requires_grad=False)
+        result = tensor.clone().detach().requires_grad_(False)
         if self.normalize:
             for t, m, s in zip(result, self.mean, self.std):
                 t.mul_(s).add_(m)
